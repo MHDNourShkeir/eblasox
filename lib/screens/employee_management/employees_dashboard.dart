@@ -1,4 +1,8 @@
+import 'package:eblasox/screens/recording_hours/daily_hours_screen.dart';
+import 'package:eblasox/screens/recording_hours/daily_hours_cubit.dart'; // 🚀 لا تنسَ استدعاء الـ Cubit
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart'; // 🚀 استدعاء مكتبة البلوك
+import 'package:shared_preferences/shared_preferences.dart';
 import 'advances/advances_screen.dart';
 
 class EmployeesManagementScreen extends StatelessWidget {
@@ -55,7 +59,6 @@ class EmployeesManagementScreen extends StatelessWidget {
                       mainAxisSpacing: 16,
                       childAspectRatio: 1.0,
                       children: [
-                        // 🚀 العنصر الأول: نظام السلف
                         _buildSubDashboardCard(
                           context: context,
                           title: 'نظام السلف',
@@ -69,7 +72,32 @@ class EmployeesManagementScreen extends StatelessWidget {
                             );
                           },
                         ),
-                        // يمكنك إضافة المزيد من الكروت هنا مستقبلاً (مثل الإجازات، الدوام، الخ)
+                        // 🚀 التعديل هنا: إضافة BlocProvider
+                        _buildSubDashboardCard(
+                          context: context,
+                          title: 'نظام الدوام',
+                          subtitle: 'إدارة إدخال الدوام',
+                          icon: Icons.calendar_month_outlined,
+                          color: Colors.indigo.shade600,
+                          onTap: () async {
+                            final prefs = await SharedPreferences.getInstance();
+                            final loggedInUser = prefs.getString('loggedInUser') ?? '';
+
+                            if (context.mounted) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => BlocProvider(
+                                    create: (context) => DailyHoursCubit(),
+                                    child: DailyHoursScreen(
+                                      supervisorSection: loggedInUser,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                        ),
                       ],
                     ),
                   ),

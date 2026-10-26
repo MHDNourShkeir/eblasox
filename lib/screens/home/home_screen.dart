@@ -185,11 +185,12 @@ class MainDashboardScreen extends StatelessWidget {
                       ),
                       _buildDashboardCard(
                         title: 'الالة الحاسبة',
-                        subtitle: 'حاسبة الدزينات',
+                        subtitle: '( 12/ ) حاسبة الدزينات',
                         icon: Icons.calculate,
                         color: Colors.teal.shade700,
                         onTap: onNavigateToCalculator,
                       ),
+
                     ],
                   ),
                 ),

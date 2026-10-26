@@ -118,6 +118,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                       const SizedBox(height: 20),
+                      Text(
+                        'تم تطويره بواسطة محمد نور شكير',
+                        style: TextStyle(fontSize: 15, color: Colors.blueGrey.shade400, fontWeight: FontWeight.w500),
+                      ),
                     ],
                   );
                 },

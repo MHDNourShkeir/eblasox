@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:smb_connect/smb_connect.dart';
 import 'core/config_sync_manager/config_sync_manager.dart';
 import 'screens/article_image/article_cubit.dart';
 import 'screens/article_image/article_search.dart';
