@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:smb_connect/smb_connect.dart'; // 🚀 استدعاء مكتبة الـ SMB
-
-import 'package:eblasox/screens/calculator/calculator_screen.dart';
-import 'package:eblasox/screens/employee_management/employees_dashboard.dart';
+import 'package:smb_connect/smb_connect.dart';
 import 'core/config_sync_manager/config_sync_manager.dart';
 import 'screens/article_image/article_cubit.dart';
 import 'screens/article_image/article_search.dart';
+import 'screens/calculator/calculator_screen.dart';
+import 'screens/employee_management/employees_dashboard.dart';
 import 'screens/excel_search_screen/excel_viewer_cubit.dart';
 import 'screens/management/management_screen.dart';
 import 'screens/management/mangement_cubit.dart';
@@ -17,6 +16,8 @@ import 'screens/excel_search_screen/excel_search.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+
   runApp(const SmbApp());
 }
 
