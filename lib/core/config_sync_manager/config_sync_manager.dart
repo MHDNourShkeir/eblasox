@@ -40,7 +40,10 @@ class AppConfig {
 class ConfigSyncManager {
 
   /// قم بتمرير ملف الـ config.xlsx بعد جلبه من السيرفر إلى هذه الدالة
-  static Future<void> syncConfigWithServer(List<int> fileBytes,{bool clearSessionOnUpdate = true,}) async {
+  static Future<void> syncConfigWithServer(
+      List<int> fileBytes, {
+        bool clearSessionOnUpdate = true,
+      }) async {
     final prefs = await SharedPreferences.getInstance();
 
     try {
@@ -67,17 +70,26 @@ class ConfigSyncManager {
           } else if (row.length >= 2 && row[1]?.value != null) {
             excelData[key] = row[1]!.value.toString().trim();
           }
-          if (clearSessionOnUpdate) {
-            await prefs.remove('loggedInUser');
-          }
         }
 
-        // مقارنة الإصدار (Version)
-        int localVersion = prefs.getInt('config_version') ?? 0;
-        int remoteVersion = int.tryParse(excelData['version']?.toString() ?? '0') ?? 0;
+        // 🚀 1. معالجة آمنة لرقم الإصدار القادم من السيرفر (لتجاهل فواصل الإكسل مثل 1.0)
+        String rawVersion = excelData['version']?.toString() ?? '0';
+        int remoteVersion = double.tryParse(rawVersion)?.toInt() ?? 0;
 
-        if (remoteVersion > localVersion) {
-          // 🚀 تم اكتشاف تحديث جديد!
+        // 🚀 2. معالجة آمنة للإصدار المحلي (لمنع انهيار التطبيق إذا كان محفوظاً بشكل خاطئ)
+        int localVersion = 0;
+        try {
+          localVersion = prefs.getInt('config_version') ?? 0;
+        } catch (e) {
+          // إذا كان محفوظاً كنص بالخطأ في تجارب سابقة
+          localVersion = int.tryParse(prefs.getString('config_version') ?? '0') ?? 0;
+        }
+
+        debugPrint('🔍 الإصدار المحلي: $localVersion | إصدار السيرفر: $remoteVersion');
+
+        // مقارنة الإصدارات
+        if (remoteVersion != localVersion && remoteVersion > 0) {
+          // تم اكتشاف تحديث جديد!
           await prefs.setInt('config_version', remoteVersion);
 
           if (excelData.containsKey('host')) await prefs.setString('host', excelData['host']);
@@ -96,18 +108,21 @@ class ConfigSyncManager {
             await prefs.setStringList('excel_subfolders', List<String>.from(excelData['excel_subfolders']));
           }
 
-          // 🚀 مسح جلسة المستخدم الحالية لإجباره على تسجيل الدخول من جديد
-          await prefs.remove('loggedInUser');
+          // 🚀 3. مسح جلسة الدخول فقط إذا طُلب ذلك (عند فتح التطبيق وليس بعد تسجيل الدخول)
+          if (clearSessionOnUpdate) {
+            debugPrint('⚠️ تم مسح جلسة تسجيل الدخول بسبب تغير رقم الإصدار!');
+            // تأكد أن 'loggedInUser' هو نفس المفتاح الذي تستخدمه في AuthCubit لحفظ اسم المستخدم
+            await prefs.remove('loggedInUser');
+          }
 
-          print('✅ تم تحديث إعدادات التطبيق للإصدار $remoteVersion وتسجيل خروج المستخدم بنجاح!');
         } else {
-          print('✅ التطبيق يستخدم أحدث إعدادات (الإصدار $localVersion). لا داعي للتحديث.');
+          debugPrint('✅ الإعدادات متطابقة. لا داعي لمسح جلسة تسجيل الدخول.');
         }
       } else {
-        print('⚠️ ورقة "App_Settings" غير موجودة في ملف الإعدادات.');
+        debugPrint('⚠️ ورقة "App_Settings" غير موجودة.');
       }
     } catch (e) {
-      print('⚠️ فشل مزامنة الإعدادات: $e');
+      debugPrint('⚠️ فشل مزامنة الإعدادات: $e');
     }
   }
 
