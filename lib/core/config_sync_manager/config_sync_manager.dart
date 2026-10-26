@@ -1,5 +1,7 @@
 import 'package:excel/excel.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:smb_connect/smb_connect.dart';
 
 // ==========================================
 // 1. القيم الافتراضية (Fallback Configuration)
@@ -38,7 +40,7 @@ class AppConfig {
 class ConfigSyncManager {
 
   /// قم بتمرير ملف الـ config.xlsx بعد جلبه من السيرفر إلى هذه الدالة
-  static Future<void> syncConfigWithServer(List<int> fileBytes) async {
+  static Future<void> syncConfigWithServer(List<int> fileBytes,{bool clearSessionOnUpdate = true,}) async {
     final prefs = await SharedPreferences.getInstance();
 
     try {
@@ -64,6 +66,9 @@ class ConfigSyncManager {
             excelData[key] = folders;
           } else if (row.length >= 2 && row[1]?.value != null) {
             excelData[key] = row[1]!.value.toString().trim();
+          }
+          if (clearSessionOnUpdate) {
+            await prefs.remove('loggedInUser');
           }
         }
 
@@ -105,6 +110,48 @@ class ConfigSyncManager {
       print('⚠️ فشل مزامنة الإعدادات: $e');
     }
   }
+
+  // 🚀 دالة شاملة تتصل بالسيرفر وتجلب الملف وتحدث الإعدادات
+  static Future<void> fetchAndSyncFromServer({bool clearSessionOnUpdate = true}) async {
+    SmbConnect? connection;
+    try {
+      final host = await getHost();
+      final username = await getUsername();
+      final password = await getPassword();
+      final configPath = await getConfigFilePath();
+
+      connection = await SmbConnect.connectAuth(
+        host: host,
+        domain: '',
+        username: username,
+        password: password,
+      );
+
+      final fileObj = await connection.file(configPath);
+      final stream = await connection.openRead(fileObj);
+
+      final List<int> excelFileBytes = [];
+      await for (var chunk in stream) {
+        excelFileBytes.addAll(chunk);
+      }
+
+      await connection.close();
+
+      if (excelFileBytes.isNotEmpty) {
+        await syncConfigWithServer(
+          excelFileBytes,
+          clearSessionOnUpdate: clearSessionOnUpdate,
+        );
+      }
+    } catch (e) {
+
+      debugPrint('⚠️ خطأ أثناء مزامنة الإعدادات من السيرفر: $e');
+      try {
+        await connection?.close();
+      } catch (_) {}
+    }
+  }
+
   // ==========================================
   // 3. دوال الجلب (Getters) لاستخدامها في باقي التطبيق
   // ==========================================

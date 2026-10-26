@@ -38,47 +38,9 @@ class _SmbAppState extends State<SmbApp> {
   }
 
   Future<void> _syncConfigAndInitialize() async {
-    SmbConnect? connection;
-    try {
-      // 1. جلب بيانات الاتصال من الجهاز (أو الافتراضية إذا كانت أول مرة)
-      final host = await ConfigSyncManager.getHost();
-      final username = await ConfigSyncManager.getUsername();
-      final password = await ConfigSyncManager.getPassword();
-      final configPath = await ConfigSyncManager.getConfigFilePath();
+    // 🚀 مزامنة الإعدادات عند فتح التطبيق (مع مسح الجلسة إذا تغير الإصدار)
+    await ConfigSyncManager.fetchAndSyncFromServer(clearSessionOnUpdate: true);
 
-      // 2. الاتصال بسيرفر SMB
-      connection = await SmbConnect.connectAuth(
-        host: host,
-        domain: '',
-        username: username,
-        password: password,
-      );
-
-      // 3. قراءة ملف config.xlsx وتحويله إلى Bytes
-      final fileObj = await connection.file(configPath);
-      final stream = await connection.openRead(fileObj);
-
-      final List<int> excelFileBytes = [];
-      await for (var chunk in stream) {
-        excelFileBytes.addAll(chunk);
-      }
-
-      await connection.close();
-
-      // 4. تمرير الملف لمدير المزامنة للتحقق من الإصدار وتحديث الإعدادات محلياً
-      if (excelFileBytes.isNotEmpty) {
-        await ConfigSyncManager.syncConfigWithServer(excelFileBytes);
-      }
-
-    } catch (e) {
-      debugPrint('⚠️ خطأ أثناء مزامنة الإعدادات: $e');
-      try {
-        await connection?.close();
-      } catch (_) {}
-      // سيستمر التطبيق بالعمل باستخدام الإعدادات المحفوظة مسبقاً (Fallback)
-    }
-
-    // 5. إنهاء شاشة التحميل والانتقال للتطبيق
     if (mounted) {
       setState(() {
         _isAppReady = true;
@@ -119,14 +81,64 @@ class _SmbAppState extends State<SmbApp> {
   }
 }
 
-class AuthWrapper extends StatelessWidget {
+class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
 
   @override
+  State<AuthWrapper> createState() => _AuthWrapperState();
+}
+
+class _AuthWrapperState extends State<AuthWrapper> {
+  bool _isSyncingAfterLogin = false;
+
+  Future<void> _resyncOnLogin(BuildContext context) async {
+    setState(() => _isSyncingAfterLogin = true);
+
+    // 1. مزامنة الإعدادات من السيرفر (دون مسح الجلسة الحالية)
+    await ConfigSyncManager.fetchAndSyncFromServer(clearSessionOnUpdate: false);
+
+    // 2. تحديث جميع الكيوبتات لتقرأ المسارات الجديدة فوراً
+    if (context.mounted) {
+      context.read<ManagementCubit>().loadSettings();
+      context.read<ArticleCubit>().loadArticles(force: true);
+      context.read<ExcelCubit>().loadExcelFiles(force: true);
+    }
+
+    if (mounted) {
+      setState(() => _isSyncingAfterLogin = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return BlocBuilder<AuthCubit, AuthState>(
+    return BlocConsumer<AuthCubit, AuthState>(
+      listener: (context, state) {
+        // 🚀 بمجرد نجاح تسجيل الدخول، نقوم بمزامنة الإعدادات وتحديث المسارات
+        if (state is AuthSuccess) {
+          _resyncOnLogin(context);
+        }
+      },
       builder: (context, state) {
         if (state is AuthSuccess) {
+          // عرض مؤشر تحميل سريع أثناء تحديث المسارات بعد تسجيل الدخول
+          if (_isSyncingAfterLogin) {
+            return Scaffold(
+              backgroundColor: Colors.blue.shade800,
+              body: const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(color: Colors.white),
+                    SizedBox(height: 16),
+                    Text(
+                      'جاري مزامنة أحدث الإعدادات...',
+                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
           return const DashboardWrapper();
         }
         return const LoginScreen();
@@ -153,7 +165,7 @@ class DashboardWrapper extends StatelessWidget {
       onNavigateToEmployeesManagement: () {
         Navigator.push(context, MaterialPageRoute(builder: (context) => const EmployeesManagementScreen()));
       },
-      onNavigateToCalculator:  () {
+      onNavigateToCalculator: () {
         Navigator.push(context, MaterialPageRoute(builder: (context) => const DozenCalculatorScreen()));
       },
     );
