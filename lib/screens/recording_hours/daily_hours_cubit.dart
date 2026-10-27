@@ -60,7 +60,6 @@ class DailyHoursCubit extends Cubit<DailyHoursState> {
     _supervisorSection = supervisorSection;
 
     try {
-      // 🚀 نفس أسلوب السلف 100%
       final host = await ConfigSyncManager.getHost();
       final networkUser = await ConfigSyncManager.getUsername();
       final networkPass = await ConfigSyncManager.getPassword();

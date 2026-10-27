@@ -24,14 +24,14 @@ class _DailyHoursScreenState extends State<DailyHoursScreen> {
 
   void _selectDate(BuildContext context) async {
     final now = DateTime.now();
-    // تحديد اليوم الأول من الشهر الحالي
-    final firstDayOfMonth = DateTime(now.year, now.month, 1);
+    // تحديد الأمس كأول يوم مسموح باختياره
+    final yesterday = now.subtract(const Duration(days: 1));
 
     final picked = await showDatePicker(
       context: context,
       initialDate: _selectedDate,
-      firstDate: firstDayOfMonth, // يمنع العودة لأشهر أو سنوات سابقة
-      lastDate: now,              // يمنع التقدم لأيام أو أشهر أو سنوات قادمة
+      firstDate: yesterday, // يمنع العودة لأكثر من يوم واحد للوراء
+      lastDate: now,        // يمنع التقدم لأيام قادمة
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -45,6 +45,7 @@ class _DailyHoursScreenState extends State<DailyHoursScreen> {
         );
       },
     );
+
     if (picked != null && picked != _selectedDate) {
       setState(() => _selectedDate = picked);
       context.read<DailyHoursCubit>().loadDailyHours(picked, widget.supervisorSection);
@@ -145,8 +146,27 @@ class _DailyHoursScreenState extends State<DailyHoursScreen> {
                 },
                 builder: (context, state) {
                   if (state is DailyHoursLoading || state is DailyHoursSaving) {
+                    // تحديد النص بناءً على الحالة الحالية
+                    String message = state is DailyHoursSaving
+                        ? 'جاري حفظ البيانات...'
+                        : 'جاري تحميل البيانات...';
+
                     return Center(
-                      child: CircularProgressIndicator(color: Colors.indigo.shade800),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CircularProgressIndicator(color: Colors.indigo.shade800),
+                          const SizedBox(height: 16),
+                          Text(
+                            message,
+                            style: TextStyle(
+                              color: Colors.indigo.shade800,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
                     );
                   } else if (state is DailyHoursLoaded) {
                     if (state.workers.isEmpty) {
@@ -207,7 +227,7 @@ class _DailyHoursScreenState extends State<DailyHoursScreen> {
             ? []
             : [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
