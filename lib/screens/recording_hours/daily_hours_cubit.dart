@@ -2,7 +2,6 @@ import 'dart:typed_data';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:excel/excel.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smb_connect/smb_connect.dart';
 
 // 🚀 استدعاء مدير الإعدادات المركزية
@@ -37,22 +36,19 @@ class DailyHoursCubit extends Cubit<DailyHoursState> {
 
   // 🚀 دالة لاختلاق مسار الدوام من مسار الـ Config (تماماً كما تفعل المكتبة)
   Future<String> _getDailyHoursFilePath(DateTime date) async {
-    final configFilePath = await ConfigSyncManager.getConfigFilePath(); // مثلاً: البرمجة الجديدة/CONFIG/config.xlsx
+    // سيجلب المسار كما كتبته في الإكسل تماماً
+    // تأكد أن المسار في الإكسل يطابق اسم المجلد الحقيقي على الكمبيوتر (الدوام أم daily-records)
+    String basePath = await ConfigSyncManager.getDailyRecordsFilePath();
 
-    // استبدال كلمة config.xlsx باسم الملف الجديد (مثلاً 10-2026.xlsx)
-    int lastSlashIndex = configFilePath.lastIndexOf(r'\');
-    if (lastSlashIndex == -1) {
-      lastSlashIndex = configFilePath.lastIndexOf('/'); // دعم السلاش العادية
-    }
+    // تركيب المسار بنفس الطريقة التي نجحت معك في 10-2026
+    String finalPath = '$basePath\\${_getDynamicFileName(date)}';
 
-    String baseFolder = '';
-    if (lastSlashIndex != -1) {
-      baseFolder = configFilePath.substring(0, lastSlashIndex);
-    } else {
-      baseFolder = r'البرمجة الجديدة\CONFIG';
-    }
+    print('====================================');
+    print('مسار الدوام المعتمد:');
+    print(finalPath); // سيطبع: /Public/البرمجة الجديدة/CONFIG/daily-records\11-2026.xlsx
+    print('====================================');
 
-    return '$baseFolder\\${_getDynamicFileName(date)}'.replaceAll(r'\\', r'\');
+    return finalPath;
   }
 
   Future<void> loadDailyHours(DateTime date, String supervisorSection) async {

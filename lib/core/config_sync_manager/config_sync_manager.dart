@@ -32,6 +32,7 @@ class AppConfig {
 
   static const String defaultConfigFilePath = '/Public/البرمجة الجديدة/CONFIG/config.xlsx';
   static const String defaultAdvancesFilePath = '/Public/البرمجة الجديدة/CONFIG/سلف.xlsx';
+  static const String defaultDailyRecordFilePath = '/Public/البرمجة الجديدة/CONFIG/daily-records';
 }
 
 // ==========================================
@@ -100,6 +101,7 @@ class ConfigSyncManager {
           if (excelData.containsKey('excel_remote_path')) await prefs.setString('excel_remote_path', excelData['excel_remote_path']);
           if (excelData.containsKey('config_file_path')) await prefs.setString('config_file_path', excelData['config_file_path']);
           if (excelData.containsKey('advances_file_path')) await prefs.setString('advances_file_path', excelData['advances_file_path']);
+          if (excelData.containsKey('daily_record_file_path')) await prefs.setString('daily_record_file_path', excelData['daily_record_file_path']);
 
           if (excelData.containsKey('article_subfolders')) {
             await prefs.setStringList('article_subfolders', List<String>.from(excelData['article_subfolders']));
@@ -219,5 +221,9 @@ class ConfigSyncManager {
   static Future<String> getAdvancesFilePath() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('advances_file_path') ?? AppConfig.defaultAdvancesFilePath;
+  }
+  static Future<String> getDailyRecordsFilePath() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('daily_record_file_path') ?? AppConfig.defaultDailyRecordFilePath;
   }
 }
