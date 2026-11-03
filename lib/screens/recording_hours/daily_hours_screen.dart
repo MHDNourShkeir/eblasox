@@ -24,14 +24,15 @@ class _DailyHoursScreenState extends State<DailyHoursScreen> {
 
   void _selectDate(BuildContext context) async {
     final now = DateTime.now();
-    // تحديد الأمس كأول يوم مسموح باختياره
-    final yesterday = now.subtract(const Duration(days: 1));
+
+    // First day of the current month
+    final firstDayOfMonth = DateTime(now.year, now.month, 1);
 
     final picked = await showDatePicker(
       context: context,
       initialDate: _selectedDate,
-      firstDate: yesterday, // يمنع العودة لأكثر من يوم واحد للوراء
-      lastDate: now,        // يمنع التقدم لأيام قادمة
+      firstDate: firstDayOfMonth,
+      lastDate: now,
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -48,7 +49,11 @@ class _DailyHoursScreenState extends State<DailyHoursScreen> {
 
     if (picked != null && picked != _selectedDate) {
       setState(() => _selectedDate = picked);
-      context.read<DailyHoursCubit>().loadDailyHours(picked, widget.supervisorSection);
+
+      context.read<DailyHoursCubit>().loadDailyHours(
+        picked,
+        widget.supervisorSection,
+      );
     }
   }
 
