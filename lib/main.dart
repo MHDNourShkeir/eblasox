@@ -4,25 +4,24 @@ import 'core/config_sync_manager/config_sync_manager.dart';
 import 'core/config_sync_manager/role_manager/role_manager.dart';
 import 'screens/article_image/article_cubit.dart';
 import 'screens/article_image/article_search.dart';
-import 'screens/calculator/calculator_screen.dart';
-import 'screens/employee_management/employees_dashboard.dart';
-import 'screens/excel_search_screen/excel_viewer_cubit.dart';
-import 'screens/excel_search_screen/excel_search.dart';
-import 'screens/management/management_screen.dart';
-import 'screens/management/mangement_cubit.dart';
 import 'screens/auth/auth_cubit.dart';
 import 'screens/auth/login_screen.dart';
+import 'screens/calculator/calculator_screen.dart';
+import 'screens/employee_management/employees_dashboard.dart';
+import 'screens/excel_search_screen/excel_search.dart';
+import 'screens/excel_search_screen/excel_viewer_cubit.dart';
 import 'screens/home/home_screen.dart';
+import 'screens/management/mangement_cubit.dart';
+import 'screens/management/management_screen.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-
   runApp(const SmbApp());
 }
 
-// ==========================================
+// ======================================================
 // MAIN APP
-// ==========================================
+// ======================================================
 
 class SmbApp extends StatefulWidget {
   const SmbApp({super.key});
@@ -37,17 +36,24 @@ class _SmbAppState extends State<SmbApp> {
   @override
   void initState() {
     super.initState();
-    _syncConfigAndInitialize();
+    _initializeApp();
   }
 
-  Future<void> _syncConfigAndInitialize() async {
-    await ConfigSyncManager.fetchAndSyncFromServer(clearSessionOnUpdate: true);
-
-    if (!mounted) return;
-
-    setState(() {
-      _isAppReady = true;
-    });
+  Future<void> _initializeApp() async {
+    try {
+      await ConfigSyncManager.fetchAndSyncFromServer(
+        clearSessionOnUpdate: true,
+      );
+    } catch (error, stackTrace) {
+      debugPrint('Configuration initialization error: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isAppReady = true;
+        });
+      }
+    }
   }
 
   @override
@@ -66,46 +72,24 @@ class _SmbAppState extends State<SmbApp> {
 
     return MultiBlocProvider(
       providers: [
-        // ==================================
-        // AUTH CUBIT
-        // Always initialized at startup.
-        // ==================================
-
+        // AUTH: Always initialized at startup.
         BlocProvider<AuthCubit>(
           lazy: false,
           create: (_) => AuthCubit()..checkSession(),
         ),
 
-        // ==================================
-        // ARTICLE CUBIT
-        // Created ONLY when requested.
-        // Data loads when an authorized
-        // user opens the image screen.
-        // ==================================
-        BlocProvider<ArticleCubit>(
-          lazy: true,
-          create: (_) => ArticleCubit()..loadArticles(force: true),
-        ),
+        // IMAGES: Created only when an authorized user opens this screen.
+        BlocProvider<ArticleCubit>(lazy: true, create: (_) => ArticleCubit()),
 
-        // ==================================
-        // EXCEL CUBIT
-        // Created ONLY when requested.
-        // ==================================
-        BlocProvider<ExcelCubit>(
-          lazy: true,
-          create: (_) => ExcelCubit()..loadExcelFiles(force: true),
-        ),
+        // EXCEL: Created only when an authorized user opens this screen.
+        BlocProvider<ExcelCubit>(lazy: true, create: (_) => ExcelCubit()),
 
-        // ==================================
-        // MANAGEMENT CUBIT
-        // Created only when settings open.
-        // ==================================
+        // SETTINGS: Created only when settings are opened.
         BlocProvider<ManagementCubit>(
           lazy: true,
-          create: (_) => ManagementCubit()..loadSettings(),
+          create: (_) => ManagementCubit(),
         ),
       ],
-
       child: MaterialApp(
         title: 'نظام إدارة المعمل',
         debugShowCheckedModeBanner: false,
@@ -118,9 +102,9 @@ class _SmbAppState extends State<SmbApp> {
   }
 }
 
-// ==========================================
+// ======================================================
 // AUTH WRAPPER
-// ==========================================
+// ======================================================
 
 class AuthWrapper extends StatelessWidget {
   const AuthWrapper({super.key});
@@ -129,17 +113,9 @@ class AuthWrapper extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<AuthCubit, AuthState>(
       builder: (context, state) {
-        // ==================================
-        // AUTHENTICATED USER
-        // ==================================
-
         if (state is AuthSuccess) {
           return const DashboardWrapper();
         }
-
-        // ==================================
-        // LOADING
-        // ==================================
 
         if (state is AuthInitial ||
             state is AuthLoadingUsers ||
@@ -152,22 +128,38 @@ class AuthWrapper extends StatelessWidget {
           );
         }
 
-        // ==================================
-        // LOGIN SCREEN
-        // ==================================
-
         return const LoginScreen();
       },
     );
   }
 }
 
-// ==========================================
+// ======================================================
 // DASHBOARD WRAPPER
-// ==========================================
+// ======================================================
 
 class DashboardWrapper extends StatelessWidget {
   const DashboardWrapper({super.key});
+
+  // ----------------------------------------------------
+  // CHECK USER PERMISSION
+  // ----------------------------------------------------
+
+  bool _hasPermission(
+    BuildContext context,
+    int screenId,
+    Set<int> permissions,
+  ) {
+    final allowed = RoleManager.shouldLoadData(screenId, permissions);
+
+    if (!allowed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ليس لديك صلاحية للوصول إلى هذا القسم')),
+      );
+    }
+
+    return allowed;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -180,18 +172,17 @@ class DashboardWrapper extends StatelessWidget {
     final permissions = authState.allowedScreens;
 
     return MainDashboardScreen(
-      // ==================================
-      // SCREEN 1 - IMAGES
-      // ==================================
+      // =================================================
+      // SCREEN 1: IMAGES
+      // =================================================
 
       onNavigateToImages: () {
-        if (!RoleManager.shouldLoadData(RoleManager.images, permissions)) {
+        if (!_hasPermission(context, RoleManager.images, permissions)) {
           return;
         }
 
-        // This read creates ArticleCubit
-        // and loads its data for the first time.
-        context.read<ArticleCubit>();
+        // Create ArticleCubit and load data only now.
+        context.read<ArticleCubit>().loadArticles();
 
         Navigator.push(
           context,
@@ -199,17 +190,16 @@ class DashboardWrapper extends StatelessWidget {
         );
       },
 
-      // ==================================
-      // SCREEN 2 - EXCEL
-      // ==================================
+      // =================================================
+      // SCREEN 2: EXCEL
+      // =================================================
       onNavigateToExcel: () {
-        if (!RoleManager.shouldLoadData(RoleManager.excel, permissions)) {
+        if (!_hasPermission(context, RoleManager.excel, permissions)) {
           return;
         }
 
-        // This read creates ExcelCubit
-        // and loads its data for the first time.
-        context.read<ExcelCubit>();
+        // Create ExcelCubit and load data only now.
+        context.read<ExcelCubit>().loadExcelFiles();
 
         Navigator.push(
           context,
@@ -217,42 +207,45 @@ class DashboardWrapper extends StatelessWidget {
         );
       },
 
-      // ==================================
-      // SETTINGS
-      // ==================================
-      onNavigateToSettings: () {
-        // ManagementCubit is lazy.
-        // It loads settings only when requested.
-        context.read<ManagementCubit>();
-
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const ManagementScreen()),
-        );
-      },
-
-      // ==================================
-      // SCREEN 3 - EMPLOYEES
-      // ==================================
+      // =================================================
+      // SCREEN 3: EMPLOYEES
+      // =================================================
       onNavigateToEmployeesManagement: () {
-        if (!RoleManager.shouldLoadData(RoleManager.employees, permissions)) {
+        if (!_hasPermission(context, RoleManager.employees, permissions)) {
           return;
         }
+
         Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const EmployeesManagementScreen()),
         );
       },
-      // ==================================
-      // SCREEN 4 - CALCULATOR
-      // ==================================
+
+      // =================================================
+      // SCREEN 4: CALCULATOR
+      // =================================================
       onNavigateToCalculator: () {
-        if (!RoleManager.shouldLoadData(RoleManager.calculator, permissions)) {
+        if (!_hasPermission(context, RoleManager.calculator, permissions)) {
           return;
         }
+
         Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const DozenCalculatorScreen()),
+        );
+      },
+
+      // =================================================
+      // SETTINGS
+      // =================================================
+      onNavigateToSettings: () {
+        // Settings are loaded independently.
+        // They do not trigger article or Excel loading.
+        context.read<ManagementCubit>().loadSettings();
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ManagementScreen()),
         );
       },
     );

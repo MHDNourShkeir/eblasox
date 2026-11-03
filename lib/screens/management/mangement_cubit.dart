@@ -110,11 +110,6 @@ class ManagementCubit extends Cubit<ManagementState> {
         await prefs.setString('admin_password', adminPassword.trim());
       }
 
-      // Refresh data across the app using central cubits
-      if (context.mounted) {
-        context.read<ArticleCubit>().loadArticles(force: true);
-        context.read<ExcelCubit>().loadExcelFiles(force: true);
-      }
 
       emit(ManagementSaved());
     } catch (e) {
