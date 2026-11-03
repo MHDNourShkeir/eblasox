@@ -1,163 +1,422 @@
+
 import 'dart:typed_data';
+
+import 'package:flutter/cupertino.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smb_connect/smb_connect.dart';
 import 'package:excel/excel.dart';
 
-// 🚀 استدعاء ملف الإعدادات الديناميكي الجديد
-import '../../core/config_sync_manager/config_sync_manager.dart'; // تأكد من صحة مسار الاستدعاء لديك
+import '../../core/config_sync_manager/config_sync_manager.dart';
+import '../../core/config_sync_manager/role_manager/role_manager.dart';
+
+// ==========================================
+// 1. APP USER MODEL
+// ==========================================
 
 class AppUser {
   final String username;
   final String password;
+  final Set<int> allowedScreens;
 
-  AppUser({required this.username, required this.password});
+  AppUser({
+    required this.username,
+    required this.password,
+    required this.allowedScreens,
+  });
 }
 
-// --- States ---
+// ==========================================
+// 2. AUTH STATES
+// ==========================================
+
 abstract class AuthState {}
+
 class AuthInitial extends AuthState {}
+
 class AuthLoadingUsers extends AuthState {}
+
 class AuthUsersLoaded extends AuthState {
   final List<AppUser> users;
+
   AuthUsersLoaded(this.users);
 }
+
 class AuthError extends AuthState {
   final String message;
+
   AuthError(this.message);
 }
+
 class AuthLoggingIn extends AuthState {
-  final List<AppUser> users; // Keep users to render the dropdown
+  final List<AppUser> users;
+
   AuthLoggingIn(this.users);
 }
+
 class AuthSuccess extends AuthState {
   final String loggedInUser;
-  AuthSuccess(this.loggedInUser);
+  final Set<int> allowedScreens;
+
+  AuthSuccess(this.loggedInUser, this.allowedScreens);
 }
 
-// --- Cubit ---
+// ==========================================
+// 3. AUTH CUBIT
+// ==========================================
+
 class AuthCubit extends Cubit<AuthState> {
   AuthCubit() : super(AuthInitial());
 
   List<AppUser> _cachedUsers = [];
 
-  // 1. Fetch Users from Excel on the Server
+  // ==========================================
+  // 4. FETCH USERS AND ROLES FROM EXCEL
+  // ==========================================
+
   Future<void> fetchUsersFromServer() async {
     emit(AuthLoadingUsers());
 
+    SmbConnect? connection;
+
     try {
-      // 🚀 قراءة بيانات الاتصال ومسار الملف من مدير الإعدادات الديناميكي
+      // Get dynamic SMB configuration.
       final host = await ConfigSyncManager.getHost();
       final networkUser = await ConfigSyncManager.getUsername();
       final networkPass = await ConfigSyncManager.getPassword();
       final configPath = await ConfigSyncManager.getConfigFilePath();
 
-      final connection = await SmbConnect.connectAuth(
+      // Connect to SMB server.
+      connection = await SmbConnect.connectAuth(
         host: host,
         domain: '',
         username: networkUser,
         password: networkPass,
       );
 
-      // 🚀 استخدام المسار الديناميكي بدلاً من المسار الثابت
+      // Download Excel file.
       final fileObj = await connection.file(configPath);
       final stream = await connection.openRead(fileObj);
 
       final List<int> bytesList = [];
-      await for (var chunk in stream) {
+
+      await for (final chunk in stream) {
         bytesList.addAll(chunk);
       }
+
       await connection.close();
+      connection = null;
 
-      final bytes = Uint8List.fromList(bytesList);
-      final excel = Excel.decodeBytes(bytes);
-
-      // Look specifically for the 'users' sheet
-      if (!excel.tables.containsKey('users')) {
-        emit(AuthError('لم يتم العثور على ورقة "users" داخل ملف الإعدادات.'));
+      if (bytesList.isEmpty) {
+        emit(AuthError('ملف الإعدادات فارغ.'));
         return;
       }
 
-      final sheet = excel.tables['users']!;
-      List<AppUser> loadedUsers = [];
+      // Decode Excel.
+      final excel = Excel.decodeBytes(
+        Uint8List.fromList(bytesList),
+      );
 
-      // 🚀 أداة تتبع الأسماء المكررة لمنع خطأ الـ Dropdown
-      Set<String> seenUsernames = {};
+      // Find users sheet.
+      final sheet = excel.tables['users'];
 
-      // Loop through rows (assuming row 0 might be headers like Username | Password)
-      for (int i = 1; i < sheet.maxRows; i++) {
-        final userCell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: i)).value?.toString().trim();
-        final passCell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: i)).value?.toString().trim();
+      if (sheet == null) {
+        emit(AuthError(
+          'لم يتم العثور على ورقة "users" داخل ملف الإعدادات.',
+        ));
+        return;
+      }
 
-        if (userCell != null && userCell.isNotEmpty) {
-          // 🚀 التحقق: هل أضفنا هذا الاسم سابقاً؟ إذا لا، أضفه للقائمة
-          if (!seenUsernames.contains(userCell)) {
-            loadedUsers.add(AppUser(username: userCell, password: passCell ?? ""));
-            seenUsernames.add(userCell); // تسجيل الاسم كـ "مقروء"
-          }
+      // ==========================================
+      // READ SCREEN IDS FROM HEADER ROW
+      // ==========================================
+
+      final Map<int, int> screenColumns = {};
+
+      for (int col = 2; col < sheet.maxColumns; col++) {
+        final header = sheet.cell(
+          CellIndex.indexByColumnRow(
+            columnIndex: col,
+            rowIndex: 0,
+          ),
+        ).value;
+
+        if (header == null) continue;
+
+        final screenId = double.tryParse(
+          header.toString().trim(),
+        )?.toInt();
+
+        if (screenId != null) {
+          screenColumns[screenId] = col;
         }
       }
 
-      if (loadedUsers.isEmpty) {
-        emit(AuthError('قائمة المستخدمين فارغة في ملف الإكسل.'));
-      } else {
-        _cachedUsers = loadedUsers;
-        emit(AuthUsersLoaded(_cachedUsers));
+      if (screenColumns.isEmpty) {
+        emit(AuthError(
+          'لم يتم العثور على أرقام الشاشات في الصف الأول.',
+        ));
+        return;
       }
 
+      // ==========================================
+      // READ USERS
+      // ==========================================
+
+      final List<AppUser> loadedUsers = [];
+
+      final Set<String> seenUsernames = {};
+
+      for (int row = 1; row < sheet.maxRows; row++) {
+        final username = sheet.cell(
+          CellIndex.indexByColumnRow(
+            columnIndex: 0,
+            rowIndex: row,
+          ),
+        ).value?.toString().trim() ?? '';
+
+        final password = sheet.cell(
+          CellIndex.indexByColumnRow(
+            columnIndex: 1,
+            rowIndex: row,
+          ),
+        ).value?.toString().trim() ?? '';
+
+        if (username.isEmpty) continue;
+
+        // Avoid duplicate usernames.
+        if (seenUsernames.contains(username)) continue;
+
+        // ==========================================
+        // READ USER PERMISSIONS
+        // ==========================================
+
+        final Set<int> allowedScreens = {};
+
+        for (final entry in screenColumns.entries) {
+          final int screenId = entry.key;
+          final int column = entry.value;
+
+          final permission = sheet.cell(
+            CellIndex.indexByColumnRow(
+              columnIndex: column,
+              rowIndex: row,
+            ),
+          ).value?.toString().trim().toUpperCase() ?? '';
+
+          if (permission == 'YES') {
+            allowedScreens.add(screenId);
+          }
+        }
+
+        loadedUsers.add(
+          AppUser(
+            username: username,
+            password: password,
+            allowedScreens: allowedScreens,
+          ),
+        );
+
+        seenUsernames.add(username);
+      }
+
+      // ==========================================
+      // UPDATE CACHED USERS
+      // ==========================================
+      if (loadedUsers.isEmpty) {
+        emit(AuthError('قائمة المستخدمين فارغة في ملف الإكسل.'));
+        return;
+      }
+
+      _cachedUsers = loadedUsers;
+
+// Check if there is an existing session.
+      final prefs = await SharedPreferences.getInstance();
+
+      final loggedInUser = prefs.getString('loggedInUser');
+
+      if (loggedInUser != null && loggedInUser.isNotEmpty) {
+
+        // Find the logged-in user in the latest Excel data.
+        AppUser? currentUser;
+
+        for (final user in _cachedUsers) {
+          if (user.username == loggedInUser) {
+            currentUser = user;
+            break;
+          }
+        }
+
+        if (currentUser != null) {
+
+          // Update permissions using the latest Excel values.
+          await RoleManager.savePermissions(
+            currentUser.allowedScreens,
+          );
+
+          debugPrint('Permissions updated from server:');
+          debugPrint('${currentUser.allowedScreens}');
+
+          emit(
+            AuthSuccess(
+              currentUser.username,
+              currentUser.allowedScreens,
+            ),
+          );
+
+        } else {
+
+          // User was removed from Excel.
+          await prefs.remove('loggedInUser');
+          await RoleManager.clearPermissions();
+
+          emit(AuthUsersLoaded(_cachedUsers));
+        }
+
+      } else {
+
+        // No active session. Show login screen.
+        emit(AuthUsersLoaded(_cachedUsers));
+      }
     } catch (e) {
-      emit(AuthError('فشل الاتصال بالخادم لجلب المستخدمين. تأكد من الشبكة.\n$e'));
+      emit(AuthError(
+        'فشل الاتصال بالخادم لجلب المستخدمين. تأكد من الشبكة.\n$e',
+      ));
+    } finally {
+      try {
+        await connection?.close();
+      } catch (_) {}
     }
   }
 
-  // 2. Validate Login locally against the fetched list
-  Future<void> login(String selectedUsername, String enteredPassword) async {
+  // ==========================================
+  // 5. LOGIN
+  // ==========================================
+
+
+  Future<void> login(
+      String selectedUsername,
+      String enteredPassword,
+      ) async {
+    // Always fetch the latest Excel data before login.
+    await fetchUsersFromServer();
+
+    // If fetching failed, don't continue with old cached data.
+    if (state is! AuthUsersLoaded) {
+      return;
+    }
+
     emit(AuthLoggingIn(_cachedUsers));
 
-    // Simulate a tiny delay for UX
-    await Future.delayed(const Duration(milliseconds: 600));
-
-    final user = _cachedUsers.firstWhere(
-          (u) => u.username == selectedUsername,
-      orElse: () => AppUser(username: '', password: ''),
+    await Future.delayed(
+      const Duration(milliseconds: 300),
     );
 
-    if (user.username.isNotEmpty && user.password == enteredPassword) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('loggedInUser', selectedUsername);
-      emit(AuthSuccess(selectedUsername));
+    AppUser? user;
+
+    for (final currentUser in _cachedUsers) {
+      if (currentUser.username == selectedUsername) {
+        user = currentUser;
+        break;
+      }
+    }
+
+    if (user != null && user.password == enteredPassword) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+
+        await prefs.setString(
+          'loggedInUser',
+          user.username,
+        );
+
+        // Save the latest Excel permissions.
+        await RoleManager.savePermissions(
+          user.allowedScreens,
+        );
+
+        debugPrint('Login successful: ${user.username}');
+        debugPrint('Latest permissions: ${user.allowedScreens}');
+
+        emit(
+          AuthSuccess(
+            user.username,
+            user.allowedScreens,
+          ),
+        );
+      } catch (e) {
+        emit(AuthError('فشل حفظ بيانات تسجيل الدخول: $e'));
+        emit(AuthUsersLoaded(_cachedUsers));
+      }
     } else {
       emit(AuthError('كلمة المرور غير صحيحة.'));
-      // Re-emit loaded state so they can try again
       emit(AuthUsersLoaded(_cachedUsers));
     }
   }
 
-  // 3. Handle Logout & Reset State
+
+  // ==========================================
+  // 6. LOGOUT
+  // ==========================================
+
+
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('loggedInUser'); // Clear the session
 
-    // Reset the state back to the user list without fetching from the server again
-    if (_cachedUsers.isNotEmpty) {
-      emit(AuthUsersLoaded(_cachedUsers));
-    } else {
-      emit(AuthInitial());
-      fetchUsersFromServer(); // Fallback just in case cache is empty
-    }
+    await prefs.remove('loggedInUser');
+
+    await RoleManager.clearPermissions();
+
+    // Clear old Excel data from memory.
+    _cachedUsers.clear();
+
+    // Fetch fresh users for the login screen.
+    await fetchUsersFromServer();
   }
 
-  // 4. Check Session
+
+  // ==========================================
+  // 7. CHECK SESSION
+  // ==========================================
+
   Future<void> checkSession() async {
     final prefs = await SharedPreferences.getInstance();
+
     final loggedInUser = prefs.getString('loggedInUser');
 
     if (loggedInUser != null && loggedInUser.isNotEmpty) {
-      // Session exists, instantly log them in
-      emit(AuthSuccess(loggedInUser));
+      debugPrint('Checking latest permissions for: $loggedInUser');
     } else {
-      // No session, fetch users to populate the login screen
-      fetchUsersFromServer();
+      debugPrint('No saved session. Loading users for login.');
     }
+
+    // Always download the latest users and permissions from SMB.
+    await fetchUsersFromServer();
+  }
+
+  // ==========================================
+  // 8. GET CURRENT USER
+  // ==========================================
+
+  Future<String?> getCurrentUsername() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    return prefs.getString('loggedInUser');
+  }
+
+  // ==========================================
+  // 9. GET CURRENT USER PERMISSIONS
+  // ==========================================
+
+  Future<Set<int>> getCurrentPermissions() async {
+    return await RoleManager.getPermissions();
+  }
+
+  // ==========================================
+  // 10. CHECK SCREEN ACCESS
+  // ==========================================
+
+  Future<bool> hasScreenAccess(int screenId) async {
+    return await RoleManager.hasAccess(screenId);
   }
 }

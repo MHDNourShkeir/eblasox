@@ -155,43 +155,68 @@ class MainDashboardScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 30),
-                Expanded(
-                  child: GridView.count(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                    childAspectRatio: 1.0,
-                    children: [
-                      _buildDashboardCard(
-                        title: 'كتالوج الصور',
-                        subtitle: 'عرض صور الموديلات',
-                        icon: Icons.image_rounded,
-                        color: Colors.blueAccent,
-                        onTap: onNavigateToImages,
-                      ),
-                      _buildDashboardCard(
-                        title: 'ملفات الإكسل',
-                        subtitle: 'عرض طلبات التصنيع',
-                        icon: Icons.table_chart_rounded,
-                        color: Colors.green.shade600,
-                        onTap: onNavigateToExcel,
-                      ),
-                      _buildDashboardCard(
-                        title: 'إدارة الموظفين',
-                        subtitle: 'السلف ، الدوام',
-                        icon: Icons.groups_rounded,
-                        color: Colors.indigo.shade600,
-                        onTap: onNavigateToEmployeesManagement,
-                      ),
-                      _buildDashboardCard(
-                        title: 'الالة الحاسبة',
-                        subtitle: '( 12/ ) حاسبة الدزينات',
-                        icon: Icons.calculate,
-                        color: Colors.teal.shade700,
-                        onTap: onNavigateToCalculator,
-                      ),
 
-                    ],
+                Expanded(
+                  child: BlocBuilder<AuthCubit, AuthState>(
+                    builder: (context, state) {
+                      if (state is! AuthSuccess) {
+                        return const Center(
+                          child: CircularProgressIndicator(),
+                        );
+                      }
+
+                      final permissions = state.allowedScreens;
+
+                      return GridView.count(
+                        crossAxisCount: 2,
+                        crossAxisSpacing: 16,
+                        mainAxisSpacing: 16,
+                        childAspectRatio: 1.0,
+
+                        children: [
+
+                          // SCREEN 1 - IMAGES
+                          if (permissions.contains(1))
+                            _buildDashboardCard(
+                              title: 'كتالوج الصور',
+                              subtitle: 'عرض صور الموديلات',
+                              icon: Icons.image_rounded,
+                              color: Colors.blueAccent,
+                              onTap: onNavigateToImages,
+                            ),
+
+                          // SCREEN 2 - EXCEL
+                          if (permissions.contains(2))
+                            _buildDashboardCard(
+                              title: 'ملفات الإكسل',
+                              subtitle: 'عرض طلبات التصنيع',
+                              icon: Icons.table_chart_rounded,
+                              color: Colors.green,
+                              onTap: onNavigateToExcel,
+                            ),
+
+                          // SCREEN 3 - EMPLOYEES MANAGEMENT
+                          if (permissions.contains(3))
+                            _buildDashboardCard(
+                              title: 'إدارة الموظفين',
+                              subtitle: 'السلف ، الدوام',
+                              icon: Icons.groups_rounded,
+                              color: Colors.indigo,
+                              onTap: onNavigateToEmployeesManagement,
+                            ),
+
+                          // SCREEN 4 - CALCULATOR
+                          if (permissions.contains(4))
+                            _buildDashboardCard(
+                              title: 'الآلة الحاسبة',
+                              subtitle: '( 12/ ) حاسبة الدزينات',
+                              icon: Icons.calculate,
+                              color: Colors.teal,
+                              onTap: onNavigateToCalculator,
+                            ),
+                        ],
+                      );
+                    },
                   ),
                 ),
               ],
