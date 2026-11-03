@@ -139,6 +139,22 @@ class _DailyHoursScreenState extends State<DailyHoursScreen> {
               child: BlocConsumer<DailyHoursCubit, DailyHoursState>(
                 listener: (context, state) {
                   if (state is DailyHoursSaveSuccess) {
+                    _showSnackBar(
+                      'تم حفظ الدوام بنجاح!',
+                      Colors.green.shade700,
+                    );
+                  } else if (state is DailyHoursNoChanges) {
+                    _showSnackBar(
+                      'لا توجد أي تغييرات لحفظها',
+                      Colors.orange.shade700,
+                    );
+                  } else if (state is DailyHoursError) {
+                    _showSnackBar(
+                      state.message,
+                      Colors.red.shade700,
+                    );
+                  }
+                  if (state is DailyHoursSaveSuccess) {
                     _showSnackBar('تم حفظ الدوام بنجاح!', Colors.green.shade700);
                   } else if (state is DailyHoursError) {
                     _showSnackBar(state.message, Colors.red.shade700);

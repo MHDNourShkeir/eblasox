@@ -10,6 +10,7 @@ import 'worker_hour_model.dart';
 
 // --- States ---
 abstract class DailyHoursState {}
+class DailyHoursNoChanges extends DailyHoursState {}
 class DailyHoursInitial extends DailyHoursState {}
 class DailyHoursLoading extends DailyHoursState {}
 class DailyHoursLoaded extends DailyHoursState {
@@ -163,6 +164,7 @@ class DailyHoursCubit extends Cubit<DailyHoursState> {
     }
   }
 
+
   Future<void> saveDailyHours() async {
     if (state is! DailyHoursLoaded) return;
 
@@ -172,78 +174,211 @@ class DailyHoursCubit extends Cubit<DailyHoursState> {
 
     emit(DailyHoursSaving());
 
+    SmbConnect? connection;
+
     try {
-      // 🚀 نفس أسلوب التخريج (Export) في السلف 100%
       final host = await ConfigSyncManager.getHost();
       final networkUser = await ConfigSyncManager.getUsername();
       final networkPass = await ConfigSyncManager.getPassword();
+
       final dailyHoursFilePath = await _getDailyHoursFilePath(date);
 
-      final connection = await SmbConnect.connectAuth(
+      connection = await SmbConnect.connectAuth(
         host: host,
         domain: '',
         username: networkUser,
         password: networkPass,
       );
 
+      // Read the current Excel file from the server.
       final fileObj = await connection.file(dailyHoursFilePath);
-      List<int> bytesList = [];
-      try {
-        final stream = await connection.openRead(fileObj);
-        await for (var chunk in stream) {
-          bytesList.addAll(chunk);
-        }
-      } catch (e) {
-        emit(DailyHoursError('لا يمكن قراءة الملف للحفظ.'));
-        await connection.close();
+
+      final bytesList = <int>[];
+
+      final stream = await connection.openRead(fileObj);
+
+      await for (var chunk in stream) {
+        bytesList.addAll(chunk);
+      }
+
+      if (bytesList.isEmpty) {
+        emit(DailyHoursError('الملف فارغ أو غير موجود.'));
         return;
       }
 
-      var excel = Excel.decodeBytes(Uint8List.fromList(bytesList));
-      String sheetName = DateFormat('MM-yyyy').format(date);
-      var sheet = excel.tables[sheetName]!;
+      // Decode Excel.
+      final excel = Excel.decodeBytes(
+        Uint8List.fromList(bytesList),
+      );
 
-      int targetColumnIndex = 3 + date.day;
+      final sheetName = DateFormat('MM-yyyy').format(date);
 
-      // 2. تطبيق التعديلات مع الحفاظ التام على التنسيق (الألوان والحدود)
-      for (var worker in workersToSave) {
-        var cell = sheet.cell(CellIndex.indexByColumnRow(
-          columnIndex: targetColumnIndex,
-          rowIndex: worker.rowIndex,
+      final sheet = excel.tables[sheetName];
+
+      if (sheet == null) {
+        emit(DailyHoursError(
+          'ورقة العمل $sheetName غير موجودة داخل الملف.',
         ));
+        return;
+      }
 
-        // 🚀 1. سحب التنسيق القديم (Style) للخلية والاحتفاظ به
+      final targetColumnIndex = 3 + date.day;
+
+      // ==========================================
+      // CHECK IF ANY DATA HAS ACTUALLY CHANGED
+      // ==========================================
+
+      bool hasChanges = false;
+
+      for (final worker in workersToSave) {
+        final cell = sheet.cell(
+          CellIndex.indexByColumnRow(
+            columnIndex: targetColumnIndex,
+            rowIndex: worker.rowIndex,
+          ),
+        );
+
+        // Current value stored in Excel.
+        final oldValue = cell.value?.toString().trim() ?? '';
+
+        // New value entered in the application.
+        final newValue = worker.hours;
+
+        // Convert the old Excel value into a number.
+        double? oldHours;
+
+        if (oldValue.isNotEmpty) {
+          oldHours = double.tryParse(oldValue);
+        }
+
+        // Compare old and new values.
+        bool isSame;
+
+        if (oldValue.isEmpty) {
+          isSame = newValue == null;
+        } else if (oldHours == null) {
+          // An existing non-empty value that cannot be parsed
+          // is treated as different.
+          isSame = false;
+        } else if (newValue == null) {
+          isSame = false;
+        } else {
+          isSame = (oldHours - newValue).abs() < 0.000001;
+        }
+
+        if (!isSame) {
+          hasChanges = true;
+          break;
+        }
+      }
+
+      // ==========================================
+      // NO CHANGES: DO NOT SAVE THE EXCEL FILE
+      // ==========================================
+
+      if (!hasChanges) {
+        await connection.close();
+        connection = null;
+
+        emit(DailyHoursNoChanges());
+
+        // Restore the loaded state so the screen remains visible.
+        emit(DailyHoursLoaded(date, workersToSave));
+
+        return;
+      }
+
+      // ==========================================
+      // CHANGES FOUND: UPDATE ONLY CHANGED CELLS
+      // ==========================================
+
+      for (final worker in workersToSave) {
+        final cell = sheet.cell(
+          CellIndex.indexByColumnRow(
+            columnIndex: targetColumnIndex,
+            rowIndex: worker.rowIndex,
+          ),
+        );
+
+        final oldValue = cell.value?.toString().trim() ?? '';
+
+        double? oldHours;
+
+        if (oldValue.isNotEmpty) {
+          oldHours = double.tryParse(oldValue);
+        }
+
+        final newValue = worker.hours;
+
+        bool isSame;
+
+        if (oldValue.isEmpty) {
+          isSame = newValue == null;
+        } else if (oldHours == null) {
+          isSame = false;
+        } else if (newValue == null) {
+          isSame = false;
+        } else {
+          isSame = (oldHours - newValue).abs() < 0.000001;
+        }
+
+        // Skip cells that haven't changed.
+        if (isSame) continue;
+
+        // Preserve existing cell formatting.
         final oldStyle = cell.cellStyle;
 
-        // 🚀 2. تعديل القيمة كنص (General)
-        if (worker.hours == null) {
-          cell.value = null; // مسح (غياب)
+        if (newValue == null) {
+          cell.value = null;
         } else {
-          String val = worker.hours!.toString().replaceAll('.0', '');
+          final val = newValue.toString().replaceAll('.0', '');
           cell.value = TextCellValue(val);
         }
 
-        // 🚀 3. إعادة التنسيق القديم للخلية كما كان بالضبط
         if (oldStyle != null) {
           cell.cellStyle = oldStyle;
         }
       }
 
-      final excelBytes = excel.encode()!;
+      // ==========================================
+      // SAVE EXCEL FILE
+      // ==========================================
 
-      try { await connection.delete(fileObj); } catch (_) {}
+      final excelBytes = excel.encode();
 
-      final newFileObj = await connection.createFile(dailyHoursFilePath);
+      if (excelBytes == null) {
+        emit(DailyHoursError('فشل في إنشاء ملف الإكسل.'));
+        return;
+      }
+
+      try {
+        await connection.delete(fileObj);
+      } catch (_) {}
+
+      final newFileObj = await connection.createFile(
+        dailyHoursFilePath,
+      );
+
       final sink = await connection.openWrite(newFileObj);
+
       sink.add(excelBytes);
+
       await sink.close();
+
       await connection.close();
+      connection = null;
 
       emit(DailyHoursSaveSuccess());
+
       await loadDailyHours(date, _supervisorSection);
 
     } catch (e) {
       emit(DailyHoursError('فشل في حفظ البيانات: $e'));
+    } finally {
+      try {
+        await connection?.close();
+      } catch (_) {}
     }
   }
+
 }
